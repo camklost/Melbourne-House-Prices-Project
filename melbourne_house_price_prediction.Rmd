@@ -1,0 +1,627 @@
+---
+title: "Melbourne House Price Prediction"
+output:
+  bookdown::pdf_document2: 
+    extra_dependencies: "subfig"
+header-includes:
+  \usepackage{placeins}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+#clear environment
+rm(list = ls())
+#Load library and install package if needed
+if (!require("dplyr")) install.packages("dplyr")
+library(dplyr)
+if (!require("tidyverse")) install.packages("tidyverse")
+library(tidyverse)
+if (!require("caret")) install.packages("caret")
+library(caret)
+if (!require("ggplot2")) install.packages("ggplot2")
+library(ggplot2)
+if (!require("tidyr")) install.packages("tidyr")
+library(tidyr)
+if (!require("kknn")) install.packages("kknn")
+library(kknn)
+if (!require("knitr")) install.packages("knitr")
+library(knitr)
+if (!require("kableExtra")) install.packages("kableExtra")
+library(kableExtra)
+if (!require("gridExtra")) install.packages("gridExtra")
+library(gridExtra)
+if (!require("DAAG")) install.packages("DAAG")
+library(DAAG)
+if (!require("randomForest")) install.packages("randomForest")
+library(randomForest)
+# Import data from file on computer
+url <- "https://github.com/HauNguyen8689/House_Price_Prediction/raw/main/melb_data.csv"
+dat <- read.csv(url)
+# Set seed
+set.seed(1,sample.kind="Rounding")
+```
+\newpage
+# Introduction
+The focus of this data science project is to predict house prices using the Melbourne housing data set from Domain.com.au. As prospective buyers often find it challenging to determine the actual house price, a model that predicts the price based on a set of house features would be highly beneficial. This model could assist buyers in making informed decisions regarding whether a particular house is within their budget, whether it is worth the asking price, or what price to offer during negotiations.
+
+The Melbourne housing data set includes information on houses sold in 2016 and 2017, and three different methods - k-nearest neighbors (knn), Linear Regression and Random Forest method - are utilized to predict house prices. The training data set is employed in each model to determine the Root Mean Squared Error (RMSE), with the optimal model selected based on the smallest cross-validation RMSE. Finally, the optimal model is used to estimate the RMSE on the validation data set.
+
+This report is structured as follows: Section 1 outlines the analytical problem, Section 2 provides details on the data description and cleaning process, while Section 3 discusses data exploration and visualization. The methodologies and results are presented in Section 4, and the report concludes with a discussion of the limitations and potential for further analysis in Section 5.
+
+# Data Preparation
+
+## Data Description
+```{r, include=FALSE}
+# Explore data
+# Check size of data set
+dim(dat)
+```
+Firstly, an overview of the data set is provided, which contains 13,580 observations and 21 variables, with one of the variables serving as the response variable, namely "Price". A comprehensive description of each variable is presented in Table \@ref(tab:tab1).
+
+\FloatBarrier
+```{r tab1, echo = FALSE}
+# Data description table
+Variables <- c("Suburb","Address","Rooms","Type","Price","Method","SellerG",
+               "Date","Distance","Postcode","Bedroom2","Bathroom","Car",
+               "Landsize","BuildingArea","YearBuilt","CouncilArea",
+               "Regionname","Propertycount")
+Description <- c("Name of houses' suburb",
+                 "Address of houses",
+                 "Number of rooms",
+                 "Houses' types: h - house, cottage, villa, semi, terrace;
+                 u - unit, duplex; t - townhouse", 
+                 "Price in Dollars", "Methods used to sell houses",
+                 "Real Estate Agent", 
+                 "Date sold",
+                 "Distance from CBD",
+                 "Postcode address number",
+                 "Number of bedrooms (from different source)",
+                 "Number of bathrooms",
+                 "Number of car spots",
+                 "Land size",
+                 "Building size",
+                 "Year built",
+                 "Governing council for the area",
+                 "General Region (West, North West, North, North east, etc)",
+                 "Number of properties that exist in the suburb")
+dat.des <- data.frame(Variables,Description)
+kbl(dat.des, booktabs = T, escape = FALSE, caption = "Data description") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+\FloatBarrier
+
+## Data Cleaning
+
+The data set comprises 8 character variables and 13 numeric variables. Table \@ref(tab:tab2) displays a summary of the character variables, while Table \@ref(tab:tab3) presents the summary of numeric variables.
+
+\FloatBarrier
+```{r tab2, echo = FALSE}
+# Summary of character variables
+No <- c(1:8)
+Character_variables <- c("Suburb","Address","Type","Method","SellerG",
+                         "Date","CouncilArea","Regionname")
+Number_of_categories <- c(n_distinct(dat$Suburb),n_distinct(dat$Address),
+                          n_distinct(dat$Type), n_distinct(dat$Method),
+                          n_distinct(dat$SellerG),n_distinct(dat$Date),
+                          n_distinct(dat$CouncilArea),n_distinct(dat$Regionname))
+tab2 <- data.frame(No,Character_variables,Number_of_categories)
+kbl(tab2, booktabs = T, caption = "Summary of character variables") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+```{r tab3, echo = FALSE}
+# Summary of numeric variables
+No <- c(1:13)
+Numeric_variables <- c("Rooms","Price","Distance","Postcode","Bedroom2",
+                       "Bathroom","Car","Landsize","BuildingArea","YearBuilt",
+                       "Lattitude", "Longtitude","Propertycount")
+Min <- c(min(dat$Rooms),min(dat$Price),min(dat$Distance),min(dat$Postcode),
+         min(dat$Bedroom2),min(dat$Bathroom),min(dat$Car,na.rm=TRUE),
+         min(dat$Landsize),min(dat$BuildingArea,na.rm=TRUE),
+         min(dat$YearBuilt,na.rm=TRUE),min(dat$Lattitude),
+         min(dat$Longtitude),min(dat$Propertycount))
+Median <- c(median(dat$Rooms),median(dat$Price),median(dat$Distance),
+            median(dat$Postcode),median(dat$Bedroom2),median(dat$Bathroom),
+            median(dat$Car,na.rm=TRUE),median(dat$Landsize),
+            median(dat$BuildingArea,na.rm=TRUE),median(dat$YearBuilt,na.rm=TRUE),
+            median(dat$Lattitude),median(dat$Longtitude),
+            median(dat$Propertycount))
+Mean <- c(mean(dat$Rooms),mean(dat$Price),mean(dat$Distance),mean(dat$Postcode),
+          mean(dat$Bedroom2),mean(dat$Bathroom),mean(dat$Car,na.rm=TRUE),
+          mean(dat$Landsize),mean(dat$BuildingArea,na.rm=TRUE),
+          mean(dat$YearBuilt,na.rm=TRUE),mean(dat$Lattitude),
+          mean(dat$Longtitude),mean(dat$Propertycount))
+Max <- c(max(dat$Rooms),max(dat$Price),max(dat$Distance),max(dat$Postcode),
+         max(dat$Bedroom2),max(dat$Bathroom),max(dat$Car,na.rm=TRUE),
+         max(dat$Landsize),max(dat$BuildingArea,na.rm=TRUE),
+         max(dat$YearBuilt,na.rm=TRUE),max(dat$Lattitude),
+         max(dat$Longtitude),max(dat$Propertycount))
+Number_of_NA <- c(sum(is.na(dat$Rooms)),sum(is.na(dat$Price)),
+                  sum(is.na(dat$Distance)),
+                  sum(is.na(dat$Postcode)),sum(is.na(dat$Bedroom2)),
+                  sum(is.na(dat$Bathroom)),sum(is.na(dat$Car)),
+                  sum(is.na(dat$Landsize)),sum(is.na(dat$BuildingArea)),
+                  sum(is.na(dat$YearBuilt)),sum(is.na(dat$Lattitude)),
+                  sum(is.na(dat$Longtitude)),sum(is.na(dat$Propertycount)))
+tab3 <- data.frame(No, Numeric_variables,Min,Median,Mean,Max,Number_of_NA)
+kbl(tab3, booktabs = T,digits = 2,caption = "Summary of numeric variables") %>%   kable_styling(latex_options = c("striped", "hold_position"))
+#3 variables have missing values: Building Area, Year Built and Car
+```
+\FloatBarrier
+
+```{r, include = FALSE}
+# Handle missing data of Car variable: 62 N/A = 0.46% data set
+62/nrow(dat) * 100
+```
+
+The summary tables reveal that three variables - Car, BuildingArea, and Landsize - contain missing data. The N/A values for the Car variable are negligible (about 0.46%), and therefore, it is retained in the data set. However, the BuildingArea and Landsize variables have almost 50% missing values, and hence, they are dropped from the data set.
+```{r, include = FALSE}
+#Remove variable Building Area and Year Built:
+data <- dat[,-15]
+data <- data[,-15]
+summary(data)
+```
+The missing values in the Car variable are dealt with using the median imputation method. This involves replacing the N/A values with the median value of the Car data.
+
+```{r, include = FALSE}
+# Imputation method for N/A values = median imputation method
+data$Car[is.na(data$Car)] <- median(data$Car, na.rm=TRUE)
+summary(data$Car)
+```
+
+Subsequently, we proceed by creating boxplots for several numeric variables to detect any outliers. Initially, we examine the boxplots for Price and Landsize variables, as displayed in Figure \@ref(fig:fig1).
+
+\FloatBarrier
+```{r fig1, echo = FALSE, fig.cap ="Boxplots of Price and Landsize", fig.show="hold", out.width="50%"}
+# Draw Boxplot of Price
+boxplot(data$Price, xlab="Price", col="blue")
+# There may be some outliers in Price, but we will not remove them
+# Draw Boxplot of Landsize
+boxplot(data$Landsize, xlab="Land Size", col="blue")
+```
+\FloatBarrier
+
+```{r, include = FALSE}
+# Calculate percentage of Landsize = 0 in data set
+sum(data$Landsize==0)/nrow(data) * 100
+#therefore, we should remove Landsize variable
+```
+
+Based on the boxplot shown in Figure \@ref(fig:fig1), we observe that there could be potential outliers in the highest values of Price variable, however, these values are not removed as they could still be reasonable. Conversely, around 14.3% of the data for Landsize variable equals to 0, which may indicate that this data was not provided. Therefore, we decide to exclude this variable from the prediction model.
+
+\FloatBarrier
+```{r fig2, echo = FALSE, fig.cap ="Boxplots of Rooms and Bedroom2", fig.show="hold", out.width="50%"}
+# Draw boxplot of Rooms variable
+boxplot(data$Rooms, xlab="Rooms", col="blue")
+# Draw boxplot of Bedrooms variable
+boxplot(data$Bedroom2, xlab="Bedroom2", col="blue")
+```
+\FloatBarrier
+
+In Figure \@ref(fig:fig2), we can see the boxplots of Rooms and Bedroom2 variables. It appears that there may be some outliers in the top end of both variables' data. To investigate further, we examine the highest values of these variables and present them in Table \@ref(tab:tab4) and Table \@ref(tab:tab5).
+
+\FloatBarrier
+```{r tab4, echo = FALSE, fig.align = "center"}
+# Explore the extreme value of Rooms variable
+table1 <- data %>% select(Rooms, Type, Bedroom2, Bathroom, Car, Landsize) %>%
+  filter(data$Rooms %in% c(8:10))
+kbl(table1, booktabs = T, caption ="Explore highest values of Rooms") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+#it seems to be still reasonable, keep it
+```
+```{r tab5, echo = FALSE, fig.align = "center"}
+# Explore the highest value of Bedroom2
+table2 <- data %>% select(Rooms, Type, Bedroom2, Bathroom, Car, Landsize) %>%
+  filter(data$Bedroom2 %in% c(8:20))
+kbl(table2, booktabs = T, caption ="Explore highest values of Bedroom2") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+\FloatBarrier
+
+Upon examining the highest values of Rooms and Bedroom2 variables, as shown in Table @ref(tab:tab4) and Table @ref(tab:tab5), we can see that some data points appear to be unreasonable, as the number of bedrooms exceeds the number of rooms. To address this issue, we remove all 203 data points with such discrepancies from the data set.
+
+```{r, include = FALSE}
+# Remove all data points that number of bedrooms > number of rooms
+sum(data$Bedroom2 > data$Rooms)
+outlier <- which(data$Bedroom2 > data$Rooms)
+data <- data[-outlier,]
+```
+
+# Data Exploration and Visualization
+
+## House Price Exploration
+
+```{r, include=FALSE}
+#Number of houses and suburbs
+n_distinct(data$Address)
+n_distinct(data$Suburb)
+# There are 13378 different houses and 314 suburbs
+```
+In this section, we delve deeper into the dataset and aim to visualize it wherever possible. As indicated in Table \@ref(tab:tab2), the dataset consists of 13,378 unique houses across 314 suburbs. To initiate the exploration, we focus on the top 10 highest-priced houses in the dataset and their characteristics as outlined in Table \@ref(tab:tab6).
+
+\FloatBarrier
+```{r tab6, echo = FALSE}
+#3.1. Features of top ten highest price houses and lowest price houses
+# Top 10 highest price houses
+top_highest <- data %>% select(Price,Suburb,Distance, Rooms, Type, Bedroom2,
+                               Bathroom, Car, Landsize) %>%
+  top_n(10,Price) %>% arrange(desc(Price))  
+kbl(top_highest, booktabs = T, caption = "The top 10 highest price houses") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+\FloatBarrier
+
+It is evident that the top 10 highest-priced houses possess distinct characteristics, as most of them have moderate values for each variable (such as land size, number of rooms, and proximity to the Central Business District). Additionally, it is noteworthy that all of these properties fall under the "house" category.
+
+The lowest price houses are listed in Table @ref(tab:tab7). These 10 houses share similar characteristics, including having only 1 bedroom and 1 bathroom, small area, and no garage space. Additionally, eight of these houses are units.
+\FloatBarrier
+```{r tab7, echo = FALSE, fig.show="hold", warning = FALSE}
+# Top 10 lowest price houses
+top_lowest <- data %>% select(Price,Suburb,Distance,Rooms,Type,Bedroom2,
+                              Bathroom,Car,Landsize) %>%
+  top_n(-10,Price) %>% arrange(desc(Price))  
+kbl(top_lowest, booktabs = T, caption = "The top 10 lowest price houses") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+\FloatBarrier
+
+Furthermore, we also analyze the house prices through visualization. The histogram of the house prices is presented in Figure \@ref(fig:fig3).
+
+```{r fig3, echo = FALSE, fig.cap ="Histogram of Price", fig.show="hold", out.width="80%", fig.align = "center", warning = FALSE}
+# Histogram of Housing Price
+data %>% ggplot(aes(x = Price, fill = ..count..)) +
+  geom_histogram(bins = 30) +
+  ylab("Count of houses") +
+  xlab("house price") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+From the histogram in Figure \@ref(fig:fig3), we can observe that the right tail is longer than the left one, indicating that the distribution of house price is skewed right. This means that the mean value of Price is higher than the median value, likely due to the presence of some extremely high data points in the Price data. To address this issue, we transform the Price data into logarithmic form and create a new variable called Price_log. We then plot the histogram of Price_log, which is shown in Figure \@ref(fig:fig4).
+
+```{r fig4, echo = FALSE, fig.cap ="Histogram of log Price",fig.show="hold", fig.align = "center", out.width="80%"}
+# Transform Price into log form and draw histogram
+data <- data %>% mutate(Price_log = log(Price))
+data %>% ggplot(aes(x = Price_log, fill = ..count..)) +
+  geom_histogram(bins=30) +
+  ylab("Count of houses") +
+  xlab("house price") + 
+  theme(plot.title = element_text(hjust = 0.5))
+# Nearly normal distribution 
+# We will use Price_log instead of Price in prediction model
+```
+
+The histogram of the logarithm of the Price variable, as shown in Figure \@ref(fig:fig4), displays a much more normal distribution than the original Price histogram. This suggests that the Price_log variable is more suitable for use in the prediction model than the original Price variable.
+\FloatBarrier
+
+## House Price Exploration By Type
+
+In this section, we explore the relationship between house price and house type. Firstly, we generate Table \@ref(tab:tab8), which shows the total number of houses, average price, minimum and maximum price for each house type.
+
+\FloatBarrier
+```{r tab8, echo = FALSE}
+# House price exploration by Type
+# Create table of Type only
+house_type <- data %>% select(Type,Price) %>%
+  group_by(Type) %>% summarize(Total = length(Type), Max_Price = max(Price),
+                               Min_Price = min(Price), Average_Price=mean(Price))
+kbl(house_type, booktabs = T,caption = "House price and type") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+\FloatBarrier
+
+As presented in Table \@ref(tab:tab8), the majority of houses in the dataset are categorized as "house", comprising around 66.77% of the total. Meanwhile, "unit" and "townhouse" represent the second and third most frequent house types, with 22.83% and 7.52% of the total, respectively. It is worth noting that the maximum price of "house" type is the highest among all other types, while "unit" type has the lowest minimum price.
+
+In addition to the tabular representation, we can also visualize the average price of each house type using Figure \@ref(fig:fig5).
+
+```{r fig5, echo = FALSE, fig.cap ="Average house price by type",fig.show="hold", fig.align = "center", out.width="80%"}
+# Draw plot of Type and Price
+ggplot(house_type, aes(x= Type, y=Average_Price)) +
+  geom_bar(stat='identity', fill="blue",width=0.5) + 
+  coord_flip() +
+  labs(x="", y="Average house price")
+```
+
+
+The average price of the "house" type is significantly higher than the other two types, as shown in Figure \@ref(fig:fig5). It is more than double the average price of the "unit" type.
+\FloatBarrier
+
+## House Price Exploration By Suburb
+
+In the same manner, a table is created to show the relationship between house price and suburb by displaying the total number, average price, minimum price and maximum price of houses in each suburb. However, due to the large number of suburbs, only the top 10 suburbs with the highest and lowest house prices are presented. The top 10 suburbs with the highest house prices are illustrated in Figure \@ref(fig:fig6).
+
+
+```{r fig6, echo = FALSE, fig.cap ="Top 10 highest average house price by suburb", fig.show="hold", out.width="80%", fig.align = "center"}
+# Top ten suburbs with highest average price
+# Explore suburb by total houses, max price, min price, average price
+house_suburb <- data %>% select(Suburb,Price) %>%
+  group_by(Suburb) %>% summarize(Total = length(Suburb), Max_Price = max(Price),
+                               Min_Price = min(Price), Average_Price=mean(Price))
+top_10_suburb <- house_suburb %>% select(Suburb,Average_Price) %>%
+  top_n(10,Average_Price) %>% arrange(desc(Average_Price))  
+ggplot(top_10_suburb, aes(x=reorder(Suburb, Average_Price), y=Average_Price)) +
+  geom_bar(stat='identity', fill="blue") + 
+  coord_flip() +
+  labs(x="", y="Average Price") +
+  geom_text(aes(label=round(Average_Price, digits = 0)), 
+            hjust=1.2, size=3, col="white")
+```
+
+```{r, include = FALSE}
+# Compare the highest average price and lowest average price among suburbs
+max(house_suburb$Average_Price)/mean(data$Price)
+```
+Looking at the top 10 lowest house price suburbs presented in Figure \@ref(fig:fig7), we can observe that most of the suburbs are located in the west and north-west areas of Melbourne. The lowest average house price is in Melton South, with less than 300,000 dollars, which is less than one-third of the average house price of the total data set.
+
+
+```{r fig7, echo = FALSE, fig.cap ="Top 10 lowest average house price by suburb", fig.show="hold", out.width="80%", fig.align = "center"}
+# Top ten suburbs with lowest average price
+top_lowest_suburb <- house_suburb %>% select(Suburb,Average_Price) %>%
+  top_n(-10,Average_Price) %>% arrange(desc(Average_Price))  
+ggplot(top_lowest_suburb, aes(x=reorder(Suburb, Average_Price), y=Average_Price)) +
+  geom_bar(stat='identity', fill="blue") + 
+  coord_flip() +
+  labs(x="", y="Average Price") +
+  geom_text(aes(label=round(Average_Price, digits = 0)), 
+            hjust=1.2, size=3, col="white") 
+```
+
+
+```{r, include = FALSE}
+# Compare the highest average price and lowest average price among suburbs
+max(house_suburb$Average_Price)/min(house_suburb$Average_Price)
+```
+The comparison between the most expensive and cheapest suburbs continues in Figure \@ref(fig:fig7). Here, we see a contrasting picture with the top expensive suburbs. The highest average price in these cheapest suburbs is even less than half of the mean value of the Price data. It is interesting to note that in terms of the average price, the suburb of Kooyong (the most expensive suburb) has a number almost eight times higher than that of Bacchus Marsh (the cheapest suburb). Therefore, we can conclude that there is a significant variation in house prices among different suburbs.
+\FloatBarrier
+
+## House Price Exploration By Other Variables
+
+In this section, we explore the house price and other variables, including: Rooms, Bedroom2, Bathroom and Car, which is presented in Figure \@ref(fig:figure8).
+
+```{r, include = FALSE}
+# House price exploration by other variables
+# Create table of Rooms and Price
+house_room <- data %>% select(Rooms,Price) %>%
+  group_by(Rooms) %>% summarize(Total = length(Rooms), Max_Price = max(Price),
+                               Min_Price = min(Price), Average_Price=mean(Price))
+kbl(house_room, booktabs = T) %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+# Draw plot of Rooms and Price
+p1 <- ggplot(house_room, aes(x = reorder(Rooms,Average_Price), y = Average_Price)) +
+  geom_bar(stat='identity', fill="blue",width=0.7) + 
+  coord_flip() +
+  labs(x="Number of Rooms", y="Average house price") +
+  geom_text(aes(label=round(Average_Price, digits = 0)), 
+            hjust= 1.1, size=3,col="white")
+# Explore Price by Bedroom2
+# Create table of Bedroom and Price
+house_bedroom <- data %>% select(Bedroom2,Price) %>%
+  group_by(Bedroom2) %>% summarize(Total = length(Bedroom2), Max_Price = max(Price),
+                                Min_Price = min(Price), Average_Price=mean(Price))
+kbl(house_bedroom, booktabs = T) %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+# Draw plot of Bedroom and Price
+p2 <- ggplot(house_bedroom, aes(x = reorder(Bedroom2,Average_Price), 
+                                y = Average_Price)) +
+  geom_bar(stat='identity', fill="blue",width=0.7) + 
+  coord_flip() +
+  labs(x="Number of bedrooms", y="Average house price") +
+  geom_text(aes(label=round(Average_Price, digits = 0)), 
+            hjust= 1.1, size=3,col="white")
+# Explore Price by Bathroom
+# Create table of Bathroom and Price
+house_bathroom <- data %>% select(Bathroom,Price) %>%
+  group_by(Bathroom) %>% summarize(Total = length(Bathroom), Max_Price = max(Price),
+                                   Min_Price = min(Price), Average_Price=mean(Price))
+kbl(house_bathroom, booktabs = T) %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+# Draw plot of Bathroom and Price
+p3 <- ggplot(house_bathroom, aes(x = reorder(Bathroom,Average_Price), y = Average_Price)) +
+  geom_bar(stat='identity', fill="blue",width=0.7) + 
+  coord_flip() +
+  labs(x="Number of bathrooms", y="Average house price") +
+  geom_text(aes(label=round(Average_Price, digits = 0)), 
+            hjust= 1.1, size=3,col="white")
+# Explore Price by Car
+# Create table of Car and Price
+house_car <- data %>% select(Car,Price) %>%
+  group_by(Car) %>% summarize(Total = length(Car), 
+                              Max_Price = max(Price),
+                              Min_Price = min(Price), 
+                              Average_Price=mean(Price))
+kbl(house_car, booktabs = T) %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+# Draw plot of Car and Price
+p4 <- ggplot(house_car, aes(x = reorder(Car,Average_Price), y = Average_Price)) +
+  geom_bar(stat='identity', fill="blue",width=0.7) + 
+  coord_flip() +
+  labs(x="Number of cars", y="Average house price") +
+  geom_text(aes(label=round(Average_Price, digits = 0)), 
+            hjust= 1.1, size=3,col="white")
+```
+
+
+```{r figure8, fig.cap="House price and Rooms, Bedroom2, Bathroom and Car", fig.show="hold", echo = FALSE}
+# Combine 4 plots (Rooms, Bedroom, Bathroom and Car)
+grid.arrange(p1,p2,p3,p4)
+```
+
+We can observe from Figure \@ref(fig:figure8) that the highest number of rooms, bedrooms, bathrooms, and car spots does not necessarily come with the highest average price. However, the houses with the highest mean price are usually larger than normal ones (with more rooms, bedrooms, bathrooms, and car spots than average - around 7 to 9). On the other hand, the houses with the lowest average house price are usually the small ones (with 1 room, 1 bathroom, 1 bathroom, and 1 car spot).
+
+Moving on to the next part, we explore the correlation between house price and distance. It is expected that houses closer to the CBD will be more expensive than the ones further away. We use a scatter plot and trend line to depict this relationship, which is shown in Figure \@ref(fig:fig9).
+
+```{r fig9, echo = FALSE, message= FALSE, fig.cap ="Scatter plot of house price and distance", fig.show="hold", out.width="80%", fig.align = "center"}
+# House Price with distance
+# Draw plot of Distance and Price
+ggplot(data, aes(x=Distance, y=Price)) + 
+  geom_point(shape=1) +  
+  geom_smooth(method=lm, color="red", se=FALSE)+
+  theme(plot.title = element_text(hjust = 0.4))
+```
+
+
+As we observe the large variability in both house prices and distances, we can still identify a negative correlation between them. This implies that when the distance increases, the house price tends to decrease, and vice versa, which aligns with our initial expectations.
+\FloatBarrier
+
+# Methodology and Result
+
+As mentioned earlier, we utilized three methods, namely k-nearest neighbor (knn), linear regression, and random forest, to construct a house price prediction model. To select the best model with the smallest Root Mean Square Error (RMSE), we used a training data set, and then validated the chosen model with a separate validation data set. However, to reduce the number of variables, we only selected meaningful predictors out of the 20 available in the dataset, which were Rooms, Type, Distance, Bedroom2, Bathroom, and Car. We also used Price_log (the log form of Price) instead of the original Price.
+
+We did not include the Suburb variable in the prediction model because it is a factor variable with 314 classes, making it difficult to handle within the models. Additionally, many of the suburbs only appear once in the data set (21 suburbs). Furthermore, since both Suburb and Distance variables are related to location, we deemed it sufficient to include only the Distance variable in the prediction model.
+
+To train and develop the algorithm, we divided the data set into two parts: the training data set (which comprised 80% of the total data set), and the validation data set (which comprised 20% of the total data set). Dividing the data set in this way allows us to mimic the final evaluation process. The known outcome data set (i.e., the training data set) is used to develop and train the algorithm, and the validation set (or test set) is used to evaluate the algorithm's performance.
+
+Typically, the proportion of the validation or test set is set between 10% and 30%. We chose to split the data set into two parts, with 80% for the training set and 20% for the validation set. This proportion allowed us to train a better prediction model while also testing how well the optimal model generalizes to unseen data. The validation set was only used to test the best model at the final part of this section.
+
+```{r, include = FALSE}
+# Methodology
+# Using Knn, linear regression, Random Forest model to predict housing price
+# Choose the optimal model based on the smallest RMSE
+# Select suitable variables in data set, then create data set to use in prediction model
+set.seed(1,sample.kind="Rounding")
+data_model <- data %>% select(Rooms, Type, Distance, Bedroom2, Bathroom,
+                              Car, Price_log)
+# count number of Suburb that appear only 1 time
+sum(house_suburb$Total==1)
+# Change class of Type from character to factor
+data_model$Type <- as.factor(data_model$Type)
+# Check again data
+summary(data_model)
+# Separate data set into train set and validation set
+index <- createDataPartition(y=data_model$Price_log, times=1,p=0.2, list=FALSE)
+validation_set <- data_model[index,]
+train_set <- data_model[-index,]
+```
+
+## K-Nearest Neighbors Method
+
+To begin with, we utilized the knn method to construct the house price prediction model. The knn algorithm is a non-parametric method that works by calculating the distances between a query and all examples in the data set. It then selects the specified number of examples (k) that are closest to the query and either averages the labels or votes for the most frequent label in the case of regression or classification, respectively. Since we are dealing with continuous data, the knn algorithm produces the average value of the k closest examples.
+
+To determine the optimal k with the smallest Root Mean Square Error (RMSE), we conducted 10-fold cross validation on the training set and experimented with different values of k, ranging from 2 to 50. 
+
+
+```{r fig10, echo = FALSE, fig.cap ="RMSE of knn Model", message= FALSE, warning = FALSE, fig.show="hold", out.width="80%", fig.align = "center"}
+# Set k nearest number from 2 to 50 with 10-fold cross validation
+n_try <- seq(2,50,1)
+k <- 10
+# Randomly assign data into k folds
+folds <- sample (1:k,nrow(train_set),replace =TRUE)
+# Create a matrix of size k=49 to store test RMSE
+cv_rmse <- matrix (0,k,49)
+# Do for loops to calculate test MSE for each k and each models
+for(j in 1:k){
+  rmse_knn_cv <- sapply(n_try,function(n){
+    fit_knn_cv <- kknn(Price_log~.,train_set[folds!=j,],
+                       train_set[folds==j,],k=n)
+    y_hat_knn <- fit_knn_cv$fitted.values
+    sqrt(mean((y_hat_knn - train_set[folds==j,]$Price_log)^2))
+  })
+  cv_rmse[j,] <- rmse_knn_cv
+}
+# Calculate mean of each column
+mean.cv.rmse <- colMeans(cv_rmse)
+# Find value of p with minimum value of test MSE
+k_optimal <- n_try[which.min(mean.cv.rmse)]
+# Find minimum value of RMSE
+rmse_knn <- min(mean.cv.rmse)
+# Table of optimal result
+result1 <- data_frame(Method = "Knn Method", 
+                      RMSE = rmse_knn,
+                      k_optimal = k_optimal)
+# Creat table of Knn method with optimal result
+knn_result <- data_frame(Method = "Knn Method",
+                         RMSE = rmse_knn)
+# Plot all value of k and RMSE corresponding
+plot(mean.cv.rmse, ylab="Mean RMSE", xlab="Value of k", col="blue")
+```
+
+
+The optimal value of k with the smallest RMSE can be easily identified from Figure \@ref(fig:fig10). As shown in Table \@ref(tab:tab9), the final result for the optimal k is 22, with an RMSE of approximately 0.32. In the upcoming section, I will discuss the linear regression method.
+\FloatBarrier
+
+## Linear Regression Method
+
+We applied the linear regression method as the second approach to construct the house price prediction model. This is a simple parametric method that is appropriate for numerical data. Similar to the previous method, we also performed 10-fold cross-validation on the training set to determine the optimal model with the lowest Root Mean Square Error (RMSE). The final RMSE result for the linear regression model was approximately 0.35, as shown in Table \@ref(tab:tab9).
+
+```{r, include = FALSE}
+# Linear regression model with 10-fold cross validation
+fit_lm_cv <- train(Price_log ~ ., train_set,
+  method = "lm", trControl = trainControl(method = "cv", number = 10))
+# Fit to find predicted results
+y_hat_lm <- predict(fit_lm_cv, train_set)
+# Calculate RMSE
+rmse_lm <- sqrt(mean((y_hat_lm - train_set$Price_log)^2))
+lm_result <- data_frame(Method = "Linear Regression Method",
+                         RMSE = rmse_lm)
+```
+
+
+## Random Forest Method
+
+Finally, we employed the random forest method to estimate house prices. The general idea behind the random forest algorithm is to create many predictors using regression or classification trees, and then compute a final prediction based on the average prediction of all these trees. To ensure that the individual trees are not identical, we used the bootstrap method to introduce randomness. These two features combined explain the name: the bootstrap makes the individual trees randomly different, and the combination of trees forms a forest. Upon running this algorithm, we obtained an RMSE result of approximately 0.31, as indicated in Table \@ref(tab:tab9).
+```{r, echo = FALSE}
+# Use randomForest function for random forest model
+fit_rf <- randomForest(Price_log ~ .,data=train_set,importance=TRUE)
+# Calculate RMSE
+rmse_rf <- sqrt(mean((fit_rf$predicted - train_set$Price_log)^2))
+rf_result <- data_frame(Method = "Random Forest Method",
+                        RMSE = rmse_rf)
+```
+
+Three different types of prediction models have been constructed. To find the optimal model, we can compare the results in Table @ref(tab:tab9).
+
+\FloatBarrier
+```{r tab9, echo = FALSE}
+# Combined result of 3 methods 
+result <- bind_rows(knn_result,lm_result,rf_result)
+kbl(result, booktabs = T, caption ="Combined result of three methods") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+\FloatBarrier
+
+According to the combined result table, the Random Forest model has the lowest RMSE, followed by the knn and linear regression models, repectively. Therefore, we will select the Random Forest model and test it on the validation set in the next part.
+\FloatBarrier
+
+## Final Result 
+After selecting the optimal model, we proceed to evaluate its performance on the validation set. Table \@ref(tab:tab10) displays the results obtained.
+
+\FloatBarrier
+```{r tab10, echo = FALSE}
+# Fit Random Forest model
+fit_rf2 <- randomForest(Price_log ~ .,data=validation_set,importance=TRUE)
+# Calculate RMSE
+rmse_rf2 <- sqrt(mean((fit_rf2$predicted - validation_set$Price_log)^2))
+rf_result2 <- data_frame(Method = "Random Forest Method - Final Result",
+                        RMSE = rmse_rf2)
+# Create table of final result on validation data set
+kbl(rf_result2, booktabs = T, 
+    caption ="Result of chosen model on validation set") %>% 
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+\FloatBarrier
+
+The validation set has an RMSE of approximately 0.33, which is slightly higher than the training set result. Additionally, we can examine the QQ-plot to evaluate the accuracy of the predicted values.
+
+
+```{r fig11, fig.cap="QQ-Plot", echo = FALSE, fig.show="hold", fig.align = "center", out.width="80%"}
+# Draw QQ Plot
+qqnorm(fit_rf2$predicted, pch = 1, frame = FALSE)
+qqline(fit_rf2$predicted, col = "red", lwd = 2)
+```
+
+The variables importance index for the random forest model is presented in Figure \@ref(fig:fig11) below. The QQ-plot indicates that the prediction model performs well, as the predicted outcome is nearly normally distributed.
+
+```{r fig12, echo = FALSE, fig.cap="Variable Importance Plot", fig.show="hold", out.width="80%", fig.align = "center"}
+# Examine variable importance
+varImpPlot(fit_rf2)
+```
+
+The interpretability of the random forest method is limited, but one approach that can help is to examine the variable importance. Figure \@ref(fig:fig12) presents the variable importance index for the random forest model. The graph on the left shows the Mean Decrease Accuracy, which measures how much the model's accuracy decreases if a variable is dropped. The graph on the right shows the Mean Decrease Gini, which measures the variable importance based on the Gini impurity index used for calculating splits in trees. Both graphs indicate that Distance is the most important variable, followed by Type, Bathroom, and Rooms. Conversely, Car and Bedroom2 are the least important variables. These results are sensible and reasonable.
+\FloatBarrier
+
+# Conclusion
+
+n our project, we utilized the Melbourne housing dataset to develop a house price prediction model. By visualizing and exploring the data, we gained a more profound understanding of the house price situation in Melbourne. We experimented with three different methods, namely knn, linear regression, and random forest, in order to identify the optimal approach. After considering the RMSE results, we selected the random forest algorithm to build the final house price prediction model. The model's RMSE on the validation set was only slightly higher than that of the training set. Based on the combined QQ-plot result, we concluded that the selected model performed admirably. The most important variable in the model was Distance, followed by Type, Bathroom, and Rooms, whereas Car and Bedroom2 were the least important.
+
+However, our project has a few limitations. Firstly, the data set only covers a two-year period (2016 and 2017) and contains limited variables. It was not possible to explore the house price trend over time due to the short time frame. Additionally, we did not employ any variable selection method to select the significant attributes. Instead, we only chose relevant attributes based on our subjective judgment. Expanding the house price dataset to include more years and attributes would be beneficial for future analyses. Additionally, a variable selection method should be applied to identify significant variables before feeding them into various prediction models, such as stepwise, LASSO, or elastic net methods. Finally, other algorithms, such as regression tree or gradient boosting machine, can be used to identify the optimal model.
